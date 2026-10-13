@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Felicizia - Sinottico MQTT</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --card: #16213e;
+            --primary: #0f3460;
+            --accent: #e94560;
+            --water: #00d2ff;
+            --success: #4caf50;
+            --danger: #f44336;
+            --text: #e0e0e0;
+        }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        h1 { text-align: center; color: var(--water); margin-bottom: 30px; }
+
+        /* Pannello Configurazione nell'Header */
+        .config-bar {
+            background: var(--card);
+            padding: 15px;
+            border-radius: 10px;
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--primary);
+        }
+        input { background: #0f3460; border: 1px solid #555; color: white; padding: 8px; border-radius: 4px; }
+        button { background: var(--accent); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
+
+        .synoptic-view {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 50px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .flow-container {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            justify-content: space-around;
+            background: var(--card);
+            padding: 40px;
+            border-radius: 20px;
+            position: relative;
+        }
+
+        /* Componenti Grafici */
+        .tank-unit { display: flex; flex-direction: column; align-items: center; width: 120px; }
+        .tank {
+            width: 80px;
+            height: 120px;
+            border: 3px solid #555;
+            border-radius: 0 0 10px 10px;
+            background: #222;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column-reverse;
+        }
+        .water { background: var(--water); width: 100%; transition: height 1s ease-in-out; box-shadow: 0 0 10px var(--water); }
+        .label { margin-top: 10px; font-weight: bold; text-align: center; font-size: 0.9em; }
+        .val { color: var(--water); font-size: 1.1em; }
+
+        .pump-unit { display: flex; flex-direction: column; align-items: center; }
+        .pump-circle {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: #333;
+            border: 4px solid #555;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            transition: 0.3s;
+        }
+        .active { background: var(--success) !important; box-shadow: 0 0 20px var(--success); color: white; }
+        .error { border-color: var(--danger) !important; color: var(--danger); }
+
+        .pipe { height: 8px; background: #333; flex-grow: 1; margin: 0 10px; position: relative; }
+        .pipe-flow::after {
+            content: ""; position: absolute; top: 0; left: 0; height: 100%; width: 30px;
+            background: var(--water); animation: flowAnim 1.5s linear infinite;
+        }
+        @keyframes flowAnim { from { left: -10%; } to { left: 110%; } }
+
+        /* Footer Stats */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            width: 100%;
+        }
+        .stat-card {
+            background: var(--card);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            border-bottom: 3px solid var(--primary);
+        }
+        .stat-val { display: block; font-size: 1.4em; font-weight: bold; color: var(--accent); }
+
+        /* Pannello LED */
+        .led-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            width: 100%;
+            background: var(--card);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .led-item { display: flex; align-items: center; gap: 12px; font-weight: bold; font-size: 0.85em; }
+        .led-dot { width: 14px; height: 14px; border-radius: 50%; background: #333; transition: 0.3s; border: 1px solid #555; }
+        .led-on.led-alive { background: #00ff00; box-shadow: 0 0 10px #00ff00; }
+        .led-on.led-warning { background: #ffcc00; box-shadow: 0 0 10px #ffcc00; }
+        .led-on.led-error { background: #ff0000; box-shadow: 0 0 10px #ff0000; }
+        .last-update { text-align: center; font-size: 0.8em; color: #888; margin: -20px 0 20px 0; }
+
+        /* Status Bar Inferiore */
+        .status-bar {
+            background: var(--card);
+            padding: 15px 25px;
+            border-radius: 10px;
+            display: flex;
+            gap: 30px;
+            width: 100%;
+            box-sizing: border-box;
+            align-items: center;
+            justify-content: space-around;
+            border: 1px solid var(--primary);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            flex-wrap: wrap;
+        }
+        .status-bar-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status-bar-label {
+            color: #888;
+            font-size: 0.9em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .status-bar-val {
+            color: var(--water);
+            font-size: 1.1em;
+            font-weight: bold;
+        }
+        @media (max-width: 600px) {
+            .status-bar {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Felicizia Smart Irrigation</h1>
+
+    <div class="config-bar">
+        <input type="text" id="mqttHost" placeholder="ws://broker-ip:9001" value="wss://felicizia:Felicizia2026@dffe5427b5874829834622fed7d79418.s1.eu.hivemq.cloud:8884/mqtt">
+        <input type="text" id="mqttTopic" placeholder="Topic (es: felicizia)" value="FB0D6B4DD7A90FBF">
+        <button onclick="connect()">Connetti</button>
+        <span id="status">🔴 Disconnesso</span>
+    </div>
+
+    <div id="updateTime" class="last-update">Ultimo aggiornamento: --:--:--</div>
+
+    <div class="synoptic-view">
+        <div class="flow-container">
+            <!-- Fosso -->
+            <div class="tank-unit">
+                <div class="tank"><div id="fill_livFosso" class="water" style="height: 0%"></div></div>
+                <div class="label">FOSSO<br><span id="val_livFosso" class="val">--</span></div>
+            </div>
+
+            <div id="flow1" class="pipe"></div>
+
+            <!-- Pompa Riempimento -->
+            <div class="pump-unit">
+                <div id="pump_cmdPriemp" class="pump-circle">P1</div>
+                <div class="label">Riempimento</div>
+            </div>
+
+            <div id="flow2" class="pipe"></div>
+
+            <!-- Serbatoio -->
+            <div class="tank-unit">
+                <div class="tank"><div id="fill_livSerbatoio" class="water" style="height: 0%"></div></div>
+                <div class="label">SERBATOIO<br><span id="val_livSerbatoio" class="val">--</span></div>
+            </div>
+
+            <div id="flow3" class="pipe"></div>
+
+            <!-- Pompa Irrigazione -->
+            <div class="pump-unit">
+                <div id="pump_cmdPirrig" class="pump-circle">P2</div>
+                <div class="label">Irrigazione</div>
+            </div>
+        </div>
+
+        <!-- Pannello LED di Stato -->
+        <div class="led-grid">
+            <div class="led-item"><div id="led_ledAlive" class="led-dot led-alive"></div> SISTEMA ATTIVO</div>
+            <div class="led-item"><div id="led_ledLowBatt" class="led-dot led-warning"></div> BATTERIA BASSA</div>
+            <div class="led-item"><div id="led_ledLowFosso" class="led-dot led-warning"></div> FOSSO VUOTO</div>
+            <div class="led-item"><div id="led_ledLowSerb" class="led-dot led-warning"></div> SERBATOIO VUOTO</div>
+            <div class="led-item"><div id="led_ledLowTaria" class="led-dot led-warning"></div> TEMP. ARIA BASSA</div>
+            <div class="led-item"><div id="led_ledTorb" class="led-dot led-warning"></div> TORBIDITÀ ANOMALA</div>
+            <div class="led-item"><div id="led_ledErrPfosso" class="led-dot led-error"></div> ERR. POMPA FOSSO</div>
+            <div class="led-item"><div id="led_ledErrPserb" class="led-dot led-error"></div> ERR. POMPA SERBATOIO</div>
+        </div>
+
+        <!-- Sensori Secondari -->
+        <div class="stats-grid">
+            <div class="stat-card"><span>Batteria</span><span id="val_vbatt" class="stat-val">--</span></div>
+            <div class="stat-card"><span>Temp. Aria</span><span id="val_tempAria" class="stat-val">--</span></div>
+            <div class="stat-card"><span>Temp. Acqua</span><span id="val_tempAcqua" class="stat-val">--</span></div>
+            <div class="stat-card"><span>Conducibilità</span><span id="val_sccm" class="stat-val">--</span></div>
+        </div>
+
+        <!-- Status Bar Inferiore -->
+        <div class="status-bar">
+            <div class="status-bar-item">
+                <span class="status-bar-label">Versione SW:</span>
+                <span id="val_swVersion" class="status-bar-val">--</span>
+            </div>
+            <div class="status-bar-item">
+                <span class="status-bar-label">Restart Reason:</span>
+                <span id="val_restartReason" class="status-bar-val">--</span>
+            </div>
+            <div class="status-bar-item">
+                <span class="status-bar-label">Restart Date:</span>
+                <span id="val_restartDate" class="status-bar-val">--</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let client = null;
+
+        // Mappatura tipo esp_reset_reason_t di ESP32 IDF
+        const espResetReasons = {
+            0: "ESP_RST_UNKNOWN",       // Reset reason can not be determined
+            1: "ESP_RST_POWERON",       // Reset due to power-on event
+            2: "ESP_RST_EXT",           // Reset by external pin (not applicable for ESP32)
+            3: "ESP_RST_SW",            // Software reset via esp_restart
+            4: "ESP_RST_PANIC",         // Software reset due to exception/panic
+            5: "ESP_RST_INT_WDT",       // Reset due to interrupt watchdog
+            6: "ESP_RST_TASK_WDT",      // Reset due to task watchdog
+            7: "ESP_RST_WDT",           // Reset due to other watchdogs
+            8: "ESP_RST_DEEPSLEEP",     // Reset after exiting deep sleep mode
+            9: "ESP_RST_BROWNOUT",      // Brownout reset (software or hardware)
+            10: "ESP_RST_SDIO",         // Reset over SDIO
+            11: "ESP_RST_USB",          // Reset by USB peripheral
+            12: "ESP_RST_JTAG",         // Reset by JTAG
+            13: "ESP_RST_EFUSE",        // Reset due to efuse error
+            14: "ESP_RST_PWR_GLITCH",   // Reset due to power glitch detected
+            15: "ESP_RST_CPU_LOCKUP"    // Reset due to CPU lock up
+        };
+
+        const espResetDescriptions = {
+            0: "Reset reason cannot be determined",
+            1: "Power-on event",
+            2: "Reset by external pin",
+            3: "Software reset via esp_restart",
+            4: "Software reset due to exception/panic",
+            5: "Interrupt watchdog reset",
+            6: "Task watchdog reset",
+            7: "Other watchdog reset",
+            8: "Reset after exiting deep sleep",
+            9: "Brownout reset (software or hardware)",
+            10: "Reset over SDIO",
+            11: "Reset by USB peripheral",
+            12: "Reset by JTAG",
+            13: "Reset due to eFuse error",
+            14: "Reset due to power glitch detected",
+            15: "Reset due to CPU lock up"
+        };
+
+        function formatResetReason(val) {
+            if (val === null || val === undefined || val === '') return '--';
+            const rawVal = typeof val === 'object' && val !== null ? (val.value !== undefined ? val.value : val.svalue) : val;
+            const code = parseInt(rawVal, 10);
+            if (!isNaN(code) && espResetReasons[code] !== undefined) {
+                return espResetReasons[code];
+            }
+            if (typeof rawVal === 'string' && rawVal.startsWith('ESP_RST_')) {
+                return rawVal;
+            }
+            return isNaN(code) ? String(rawVal) : `ESP_RST_UNKNOWN (${code})`;
+        }
+
+        function updateResetReason(val) {
+            const text = formatResetReason(val);
+            const el = document.getElementById('val_restartReason') || document.getElementById('val_reset_reason');
+            if (el) {
+                el.innerText = text;
+                const rawVal = typeof val === 'object' && val !== null ? (val.value !== undefined ? val.value : val.svalue) : val;
+                const code = parseInt(rawVal, 10);
+                if (!isNaN(code) && espResetDescriptions[code]) {
+                    el.title = espResetDescriptions[code];
+                }
+            }
+        }
+
+        function formatRestartDate(val) {
+            if (val === null || val === undefined || val === '') return null;
+            const rawVal = typeof val === 'object' && val !== null ? (val.value !== undefined ? val.value : val.svalue) : val;
+            const uptimeMinutes = parseFloat(rawVal);
+            if (isNaN(uptimeMinutes)) return null;
+
+            // uptimeMinutes rappresenta l'uptime in minuti con decimali: sottraiamo da Date.now()
+            const restartTimestamp = Date.now() - (uptimeMinutes * 60 * 1000);
+            const d = new Date(restartTimestamp);
+            const pad = n => String(n).padStart(2, '0');
+            return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+
+        function updateRestartDate(val) {
+            const text = formatRestartDate(val);
+            if (!text) return;
+            const el = document.getElementById('val_restartDate') || document.getElementById('val_uptime');
+            if (el) {
+                el.innerText = text;
+                const rawVal = typeof val === 'object' && val !== null ? (val.value !== undefined ? val.value : val.svalue) : val;
+                const uptimeMinutes = parseFloat(rawVal);
+                if (!isNaN(uptimeMinutes)) {
+                    el.title = `Uptime: ${uptimeMinutes.toFixed(1)} min`;
+                }
+            }
+        }
+
+        function updateSwVersion(val) {
+            if (val === null || val === undefined || val === '') return;
+            const rawVal = typeof val === 'object' && val !== null ? (val.svalue !== undefined ? val.svalue : val.value) : val;
+            if (rawVal === undefined || rawVal === null || rawVal === '') return;
+            const el = document.getElementById('val_swVersion') || document.getElementById('val_sw_version');
+            if (el) {
+                el.innerText = String(rawVal);
+            }
+        }
+
+        function requestDeviceDetails() {
+            if (!client || !client.connected) return;
+            const topic = document.getElementById('mqttTopic').value;
+            client.publish(`${topic}/Downlink`, JSON.stringify({id: "sync_dev", cmd: "getObject", data: {objId: "device"}}));
+        }
+
+        function handleDeviceObject(data) {
+            if (!data) return;
+            if (data.id === 'device') {
+                if (data.properties) {
+                    if (Array.isArray(data.properties)) {
+                        data.properties.forEach(updateUI);
+                    } else {
+                        if (data.properties.sw_version !== undefined) {
+                            const p = data.properties.sw_version;
+                            updateSwVersion(typeof p === 'object' && p !== null ? (p.svalue !== undefined ? p.svalue : p.value) : p);
+                        }
+                        if (data.properties.reset_reason !== undefined) {
+                            const p = data.properties.reset_reason;
+                            updateResetReason(typeof p === 'object' && p !== null ? (p.value !== undefined ? p.value : p.svalue) : p);
+                        }
+                        if (data.properties.uptime !== undefined) {
+                            const p = data.properties.uptime;
+                            updateRestartDate(typeof p === 'object' && p !== null ? (p.value !== undefined ? p.value : p.svalue) : p);
+                        }
+                    }
+                }
+                if (data.sw_version !== undefined) updateSwVersion(data.sw_version);
+                if (data.reset_reason !== undefined) updateResetReason(data.reset_reason);
+                if (data.uptime !== undefined) updateRestartDate(data.uptime);
+            }
+        }
+
+        function connect() {
+            const host = document.getElementById('mqttHost').value;
+            const topic = document.getElementById('mqttTopic').value;
+            
+            // Salvataggio immediato al click del tasto connetti
+            localStorage.setItem('syn_mqtt_host', host);
+            localStorage.setItem('syn_mqtt_topic', topic);
+
+            if (client) client.end();
+
+            updateStatus("🟡 Connessione...");
+            
+            // Generazione clientId univoco per evitare collisioni sul broker
+            const clientId = 'synoptic_' + Math.random().toString(16).substring(2, 8);
+            client = mqtt.connect(host, { clientId });
+
+            client.on('connect', () => {
+                updateStatus("🟢 Connesso");
+                client.subscribe(`${topic}/Uplink`);
+                client.publish(`${topic}/Downlink`, JSON.stringify({id: "sync", cmd: "getObjectList"}));
+                requestDeviceDetails();
+            });
+
+            client.on('message', (t, message) => {
+                try {
+                    const msg = JSON.parse(message.toString());
+                    if (msg.cmd === "getObjectList" || msg.cmd === "propChange") {
+                        if (msg.data) msg.data.forEach(updateUI);
+                    } else if (msg.cmd === "getObject" && msg.data) {
+                        handleDeviceObject(msg.data);
+                    }
+                    document.getElementById('updateTime').innerText = "Ultimo aggiornamento: " + new Date().toLocaleTimeString();
+                } catch(e) { console.error("Errore parsing MQTT", e); }
+            });
+
+            client.on('error', () => updateStatus("🔴 Errore"));
+            client.on('close', () => updateStatus("🔴 Chiuso"));
+        }
+
+        function updateStatus(text) {
+            document.getElementById('status').innerText = text;
+        }
+
+        function updateUI(item) {
+            const isFullObject = !item.id.includes('_');
+            const baseId = item.id.replace('_value', '').replace('_fail', '').replace('_override', '');
+            
+            const valEl = document.getElementById(`val_${baseId}`);
+            const pumpEl = document.getElementById(`pump_${baseId}`);
+            const fillEl = document.getElementById(`fill_${baseId}`);
+            const ledEl = document.getElementById(`led_${baseId}`);
+
+            // 1. Aggiornamento testo valore (solo se è un cambiamento di valore)
+            if (item.id.endsWith('_value') || isFullObject) {
+                if (valEl) valEl.innerText = item.svalue;
+            }
+
+            // 2. Logica Serbatoi (Livelli)
+            if (baseId === 'livFosso') {
+                if (fillEl && (item.id.endsWith('_value') || isFullObject)) {
+                    // Scale specifiche: Fosso 0.5m, Serbatoio 1.0m
+                    const rawVal = parseFloat(item.value);
+                    const maxLvl = (baseId === 'livFosso') ? 0.5 : 1.0;
+                    const percent = Math.min(100, Math.max(0, (rawVal / maxLvl) * 100));
+                    fillEl.style.height = percent + "%";
+                }
+            }
+            if (baseId === 'livSerbatoio') {
+                if (fillEl && (item.id.endsWith('_value') || isFullObject)) {
+                    // Scale specifiche: Fosso 0.5m, Serbatoio 1.0m
+                    const rawVal = parseFloat(item.value);
+                    const maxLvl = (baseId === 'livFosso') ? 0.5 : 1.0;
+                    const percent = Math.min(100, Math.max(0, (rawVal / maxLvl) * 100));
+                    fillEl.style.height = percent + "%";
+                }
+            }
+
+            // 3. Logica Pompe e Animazione Tubi
+            if (baseId === 'cmdPriemp' || baseId === 'cmdPirrig') {
+                const isActive = (item.id.endsWith('_value') || isFullObject) ? 
+                                 (item.value === true || item.value === "true" || item.value === 1) : 
+                                 null;
+                
+                if (pumpEl && isActive !== null) {
+                    pumpEl.classList.toggle('active', isActive);
+                    
+                    // Gestione tubi
+                    if (baseId === 'cmdPriemp') {
+                        document.getElementById('flow1').classList.toggle('pipe-flow', isActive);
+                        document.getElementById('flow2').classList.toggle('pipe-flow', isActive);
+                    } else {
+                        document.getElementById('flow3').classList.toggle('pipe-flow', isActive);
+                    }
+                }
+            }
+
+            // 4. Gestione Errori (Fail) - Funziona sia su propChange che su oggetto intero
+            let currentFail = null;
+            if (item.id.endsWith('_fail')) {
+                currentFail = (item.value === true || item.value === "yes");
+            } else if (isFullObject && item.fail !== undefined) {
+                currentFail = (item.fail === 'yes' || item.fail === true);
+            }
+
+            if (currentFail !== null) {
+                if (pumpEl) pumpEl.classList.toggle('error', currentFail);
+                if (valEl) valEl.style.color = currentFail ? 'var(--danger)' : 'var(--water)';
+            }
+
+            // 5. Logica LED
+            if (ledEl) {
+                const isOn = (item.id.endsWith('_value') || isFullObject) ? 
+                             (item.value === true || item.value === "true" || item.value === 1) : 
+                             null;
+                if (isOn !== null) ledEl.classList.toggle('led-on', isOn);
+            }
+
+            // 6. Logica Device (Restart Reason, Restart Date e Versione SW)
+            if (item.id === 'device_sw_version' || item.id === 'device_sw_version_value' || item.id === 'sw_version' || baseId === 'sw_version' || baseId === 'device_sw_version') {
+                updateSwVersion(item.svalue !== undefined ? item.svalue : item.value);
+            }
+            if (item.id === 'device_reset_reason' || item.id === 'device_reset_reason_value' || item.id === 'reset_reason' || baseId === 'reset_reason' || baseId === 'device_reset_reason') {
+                updateResetReason(item.value !== undefined ? item.value : item.svalue);
+            }
+            if (item.id === 'device_uptime' || item.id === 'device_uptime_value' || item.id === 'uptime' || baseId === 'uptime' || baseId === 'device_uptime') {
+                updateRestartDate(item.value !== undefined ? item.value : item.svalue);
+            }
+            if (item.id === 'device') {
+                if (item.sw_version !== undefined) updateSwVersion(item.sw_version);
+                if (item.reset_reason !== undefined) updateResetReason(item.reset_reason);
+                if (item.uptime !== undefined) updateRestartDate(item.uptime);
+                requestDeviceDetails();
+            }
+        }
+
+        // Autoconnect se i parametri sono nel localStorage (opzionale)
+        window.onload = () => {
+            const h = localStorage.getItem('syn_mqtt_host');
+            const t = localStorage.getItem('syn_mqtt_topic');
+            if(h) document.getElementById('mqttHost').value = h;
+            if(t) document.getElementById('mqttTopic').value = t;
+            
+            // Tenta la connessione automatica
+            connect();
+        };
+
+        // Salvataggio config
+        function saveConfig() {
+            localStorage.setItem('syn_mqtt_host', document.getElementById('mqttHost').value);
+            localStorage.setItem('syn_mqtt_topic', document.getElementById('mqttTopic').value);
+        }
+        document.querySelectorAll('input').forEach(i => i.addEventListener('change', saveConfig));
+
+    </script>
+</body>
+</html>
